@@ -1,0 +1,9 @@
+{
+  "name": "ESP32-C3 Ringlight",
+  "short_name": "Ringlight",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e1116",
+  "theme_color": "#0e1116",
+  "orientation": "portrait"
+}
