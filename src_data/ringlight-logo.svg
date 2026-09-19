@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 156 20.04">
+  <text x="78" y="19" text-anchor="middle"
+        textLength="152" lengthAdjust="spacingAndGlyphs"
+        font-family="'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif"
+        font-size="26" font-weight="500">
+    <tspan fill="#7F858F">RING</tspan><tspan fill="#B1FF42">L</tspan><tspan fill="#7F858F">IGHT</tspan>
+  </text>
+</svg>

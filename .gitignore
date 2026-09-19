@@ -1,0 +1,15 @@
+.pio
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch
+
+# Sensitive config files
+data/wifi.json
+data/mqtt.json
+data/config.json
+data/timers.json
+data/bambu.json
+
+# Generated gzip assets (built by compress_web.py from src_data/)
+data/*.gz

@@ -1,0 +1,507 @@
+#pragma once
+#include <Arduino.h>
+#include <WiFi.h>
+#include <functional>
+#include "wifiConfigManager.h"
+#include "mqttController.h"
+#include "bambulabController.h"
+#include "geoController.h"
+#include "ringController.h"
+#include "networkManager.h"
+
+class SerialConsole {
+public:
+    // Optional callback: called for every output line (without "RST: " prefix/newline)
+    std::function<void(const String&)> onOutput;
+    // Fired after a console command changed the ring, so main.cpp can
+    // broadcast the new state and mark the config dirty.
+    std::function<void()> onRingChanged;
+
+    SerialConsole(WiFiConfigManager& wifi, MQTTController& mqtt, const char* firmwareVersion)
+        : _wifi(wifi), _mqtt(mqtt), _version(firmwareVersion) {}
+
+    void begin() {
+        Serial.printf("\nRinglight v%s — type 'help' for commands\n> ", _version);
+    }
+
+    void loop() {
+        while (Serial.available()) {
+            char c = Serial.read();
+            if (c == '\r') continue;
+            if (c == '\n') {
+                Serial.println();
+                _buf.trim();
+                if (_buf.length() > 0) {
+                    Serial.printf("CMD: %s\n", _buf.c_str());
+                    _process(_buf);
+                }
+                _buf = "";
+                Serial.print("> ");
+            } else if (c == 127 || c == '\b') { // backspace
+                if (_buf.length() > 0) {
+                    _buf.remove(_buf.length() - 1);
+                    Serial.print("\b \b");
+                }
+            } else {
+                _buf += c;
+                Serial.print(c); // echo character
+            }
+        }
+    }
+
+    void setBambu(BambuLabController& b) { _bambu = &b; }
+    void setRing(RingController& r)      { _ring  = &r; }
+    void setNetwork(NetworkManager& n)   { _net   = &n; }
+    void setGeo(GeoController& g)       { _geo   = &g; }
+
+    // Execute a command from the web console (echoes it and runs it)
+    void executeFromWeb(const String& cmd) {
+        String line = cmd;
+        line.trim();
+        if (line.length() == 0) return;
+        _raw(String("> ") + line);
+        _process(line);
+    }
+
+private:
+    WiFiConfigManager&  _wifi;
+    MQTTController&     _mqtt;
+    BambuLabController* _bambu = nullptr;
+    RingController*     _ring  = nullptr;
+    NetworkManager*     _net   = nullptr;
+    GeoController*      _geo   = nullptr;
+    const char*         _version;
+    String              _buf;
+
+    // Split "cmd arg" into cmd and arg
+    static String _cmd(const String& line) {
+        int i = line.indexOf(' ');
+        return i < 0 ? line : line.substring(0, i);
+    }
+    static String _arg(const String& line) {
+        int i = line.indexOf(' ');
+        return i < 0 ? "" : line.substring(i + 1);
+    }
+
+    // Output a line to Serial and invoke onOutput callback
+    void _raw(const String& s) {
+        Serial.printf("RST: %s\n", s.c_str());
+        if (onOutput) onOutput(s);
+    }
+
+    // Printf-style output routed through _raw
+    void _rawf(const char* fmt, ...) {
+        char buf[256];
+        va_list args;
+        va_start(args, fmt);
+        vsnprintf(buf, sizeof(buf), fmt, args);
+        va_end(args);
+        _raw(String(buf));
+    }
+
+    void _print(const String& s) { _raw(s); }
+
+    // Save wifi config using current runtime values (helper to avoid repetition)
+    void _saveWifi() {
+        _wifi.saveConfig(_wifi.deviceName, _wifi.ntpServer, _wifi.timezone,
+                         _wifi.wifiSSID, _wifi.wifiPassword, _wifi.dhcp,
+                         _wifi.localIP, _wifi.subnet, _wifi.gateway, _wifi.dns);
+    }
+
+    // Enables one effect (or none) keeping every stored parameter.
+    void _applyEffect(RingEffect e) {
+        _ring->setSpinner(e == RingEffect::SPINNER,
+                          _ring->getSpinnerR(), _ring->getSpinnerG(), _ring->getSpinnerB(),
+                          _ring->getSpinnerTail(), _ring->getSpinnerSpeed(), _ring->getSpinnerCW());
+        if (e == RingEffect::SPINNER) return;
+        _ring->setRainbow(e == RingEffect::RAINBOW, _ring->getRainbowCycleTime());
+        if (e == RingEffect::RAINBOW) return;
+        _ring->setParty(e == RingEffect::PARTY, _ring->getPartyMadness());
+        if (e == RingEffect::PARTY) return;
+        _ring->setProgress(e == RingEffect::PROGRESS, _ring->getProgressPercent(),
+                           _ring->getProgressFR(), _ring->getProgressFG(), _ring->getProgressFB(),
+                           _ring->getProgressBR(), _ring->getProgressBG(), _ring->getProgressBB());
+        if (e == RingEffect::PROGRESS) return;
+        _ring->setClock(e == RingEffect::CLOCK);
+        if (e == RingEffect::CLOCK) return;
+        _ring->setChase(e == RingEffect::CHASE,
+                        _ring->getChaseR(), _ring->getChaseG(), _ring->getChaseB(),
+                        _ring->getChaseSpeed());
+    }
+
+    void _process(const String& line) {
+        String cmd = _cmd(line);
+        String arg = _arg(line);
+        cmd.toLowerCase();
+
+        if (cmd == "help") {
+            _print("Commands:");
+            _print("  status                  — device overview");
+            _print("  version                 — firmware version");
+            _print("  ip                      — current IP address");
+            _print("  ssid                    — get WiFi SSID");
+            _print("  ssid <value>            — set WiFi SSID (requires reboot)");
+            _print("  password <value>        — set WiFi password (requires reboot)");
+            _print("  hostname                — get mDNS hostname");
+            _print("  hostname <value>        — set mDNS hostname (requires reboot)");
+            _print("  dhcp                    — show DHCP mode");
+            _print("  dhcp on|off             — enable/disable DHCP (requires reboot)");
+            _print("  staticip <value>        — set static IP (requires reboot)");
+            _print("  subnet <value>          — set subnet mask (requires reboot)");
+            _print("  gateway <value>         — set gateway (requires reboot)");
+            _print("  dns <value>             — set DNS server (requires reboot)");
+            _print("  rssi                    — WiFi signal strength");
+            _print("  wifi                    — WiFi status and last failure reason");
+            _print("  wifi scan               — list the networks in range");
+            _print("  heap                    — free heap memory");
+            _print("  uptime                  — device uptime");
+            _print("  reboot                  — restart device");
+            _print("  mqtt                    — show MQTT configuration");
+            _print("  mqtt broker <value>     — set MQTT broker");
+            _print("  mqtt port <value>       — set MQTT port");
+            _print("  mqtt user <value>       — set MQTT username");
+            _print("  mqtt pass <value>       — set MQTT password");
+            _print("  mqtt clientid <value>   — set MQTT client ID");
+            _print("  mqtt topic <value>      — set MQTT topic prefix");
+            _print("  mqtt enable|disable     — enable/disable MQTT");
+            _print("  bambu                   — show BambuLab config and status");
+            _print("  bambu ip <value>        — set printer IP");
+            _print("  bambu serial <value>    — set printer serial number");
+            _print("  bambu code <value>      — set access code");
+            _print("  bambu enable|disable    — enable/disable BambuLab");
+            _print("  ring                    — show ring colour and effect");
+            _print("  ring on|off             — turn the ring on or off");
+            _print("  ring color <RRGGBB>     — set the ring colour");
+            _print("  ring effect <name>      — none|spinner|rainbow|party|progress|clock|chase");
+            _print("  ring progress <0-100>   — set the progress percentage");
+            _print("  weather                 — show weather and air quality");
+            _print("  weather refresh         — force weather and air quality update");
+
+        } else if (cmd == "status") {
+            _rawf("Version  : %s", _version);
+            _rawf("IP       : %s", WiFi.localIP().toString().c_str());
+            _rawf("SSID     : %s", WiFi.SSID().c_str());
+            _rawf("RSSI     : %d dBm", WiFi.RSSI());
+            _rawf("Hostname : %s.local", _wifi.deviceName.c_str());
+            _rawf("Heap     : %u bytes", ESP.getFreeHeap());
+            _rawf("Uptime   : %lu s", millis() / 1000);
+
+        } else if (cmd == "version") {
+            _print(_version);
+
+        } else if (cmd == "ip") {
+            _print(WiFi.localIP().toString());
+
+        } else if (cmd == "rssi") {
+            _rawf("%d dBm", WiFi.RSSI());
+
+        } else if (cmd == "heap") {
+            _rawf("%u bytes", ESP.getFreeHeap());
+
+        } else if (cmd == "uptime") {
+            _rawf("%lu s", millis() / 1000);
+
+        } else if (cmd == "ssid") {
+            if (arg.isEmpty()) {
+                _print(_wifi.wifiSSID);
+            } else {
+                _wifi.wifiSSID = arg;
+                _saveWifi();
+                _print("SSID saved. Reboot to apply.");
+            }
+
+        } else if (cmd == "password") {
+            if (arg.isEmpty()) {
+                _print("Usage: password <value>");
+            } else {
+                _wifi.wifiPassword = arg;
+                _saveWifi();
+                _print("Password saved. Reboot to apply.");
+            }
+
+        } else if (cmd == "hostname") {
+            if (arg.isEmpty()) {
+                _rawf("%s.local", _wifi.deviceName.c_str());
+            } else {
+                _wifi.deviceName = arg;
+                _saveWifi();
+                _print("Hostname saved. Reboot to apply.");
+            }
+
+        } else if (cmd == "dhcp") {
+            if (arg.isEmpty()) {
+                _print(_wifi.dhcp ? "on" : "off");
+            } else {
+                arg.toLowerCase();
+                if (arg == "on") {
+                    _wifi.dhcp = true;
+                    _saveWifi();
+                    _print("DHCP enabled. Reboot to apply.");
+                } else if (arg == "off") {
+                    _wifi.dhcp = false;
+                    _saveWifi();
+                    _print("DHCP disabled. Reboot to apply.");
+                } else {
+                    _print("Usage: dhcp on|off");
+                }
+            }
+
+        } else if (cmd == "staticip") {
+            if (arg.isEmpty()) {
+                _print(_wifi.localIP.toString());
+            } else {
+                if (!_wifi.localIP.fromString(arg)) {
+                    _print("Invalid IP address.");
+                } else {
+                    _saveWifi();
+                    _print("Static IP saved. Reboot to apply.");
+                }
+            }
+
+        } else if (cmd == "subnet") {
+            if (arg.isEmpty()) {
+                _print(_wifi.subnet.toString());
+            } else {
+                if (!_wifi.subnet.fromString(arg)) {
+                    _print("Invalid subnet mask.");
+                } else {
+                    _saveWifi();
+                    _print("Subnet saved. Reboot to apply.");
+                }
+            }
+
+        } else if (cmd == "gateway") {
+            if (arg.isEmpty()) {
+                _print(_wifi.gateway.toString());
+            } else {
+                if (!_wifi.gateway.fromString(arg)) {
+                    _print("Invalid gateway address.");
+                } else {
+                    _saveWifi();
+                    _print("Gateway saved. Reboot to apply.");
+                }
+            }
+
+        } else if (cmd == "dns") {
+            if (arg.isEmpty()) {
+                _print(_wifi.dns.toString());
+            } else {
+                if (!_wifi.dns.fromString(arg)) {
+                    _print("Invalid DNS address.");
+                } else {
+                    _saveWifi();
+                    _print("DNS saved. Reboot to apply.");
+                }
+            }
+
+        } else if (cmd == "mqtt") {
+            String sub = _cmd(arg);
+            String val = _arg(arg);
+            sub.toLowerCase();
+
+            if (sub.isEmpty()) {
+                // Show MQTT config
+                _rawf("Enabled  : %s", _mqtt.getEnabled() ? "yes" : "no");
+                _rawf("Connected : %s", _mqtt.isConnected() ? "yes" : "no");
+                _rawf("Broker    : %s", _mqtt.getBroker().c_str());
+                _rawf("Port      : %d", _mqtt.getPort());
+                _rawf("Username  : %s", _mqtt.getUsername().c_str());
+                _rawf("Client ID : %s", _mqtt.getClientId().c_str());
+                _rawf("Topic     : %s", _mqtt.getTopicPrefix().c_str());
+            } else if (sub == "broker") {
+                if (val.isEmpty()) { _print("Usage: mqtt broker <value>"); return; }
+                _mqtt.applyConfig(val, _mqtt.getPort(), _mqtt.getUsername(),
+                                  _mqtt.getPassword(), _mqtt.getClientId(),
+                                  _mqtt.getTopicPrefix(), _mqtt.getEnabled());
+                _mqtt.saveConfig();
+                _print("Broker saved.");
+            } else if (sub == "port") {
+                if (val.isEmpty()) { _print("Usage: mqtt port <value>"); return; }
+                int p = val.toInt();
+                if (p <= 0 || p > 65535) { _print("Invalid port."); return; }
+                _mqtt.applyConfig(_mqtt.getBroker(), p, _mqtt.getUsername(),
+                                  _mqtt.getPassword(), _mqtt.getClientId(),
+                                  _mqtt.getTopicPrefix(), _mqtt.getEnabled());
+                _mqtt.saveConfig();
+                _print("Port saved.");
+            } else if (sub == "user") {
+                if (val.isEmpty()) { _print("Usage: mqtt user <value>"); return; }
+                _mqtt.applyConfig(_mqtt.getBroker(), _mqtt.getPort(), val,
+                                  _mqtt.getPassword(), _mqtt.getClientId(),
+                                  _mqtt.getTopicPrefix(), _mqtt.getEnabled());
+                _mqtt.saveConfig();
+                _print("Username saved.");
+            } else if (sub == "pass") {
+                if (val.isEmpty()) { _print("Usage: mqtt pass <value>"); return; }
+                _mqtt.applyConfig(_mqtt.getBroker(), _mqtt.getPort(), _mqtt.getUsername(),
+                                  val, _mqtt.getClientId(),
+                                  _mqtt.getTopicPrefix(), _mqtt.getEnabled());
+                _mqtt.saveConfig();
+                _print("Password saved.");
+            } else if (sub == "clientid") {
+                if (val.isEmpty()) { _print("Usage: mqtt clientid <value>"); return; }
+                _mqtt.applyConfig(_mqtt.getBroker(), _mqtt.getPort(), _mqtt.getUsername(),
+                                  _mqtt.getPassword(), val,
+                                  _mqtt.getTopicPrefix(), _mqtt.getEnabled());
+                _mqtt.saveConfig();
+                _print("Client ID saved.");
+            } else if (sub == "topic") {
+                if (val.isEmpty()) { _print("Usage: mqtt topic <value>"); return; }
+                _mqtt.applyConfig(_mqtt.getBroker(), _mqtt.getPort(), _mqtt.getUsername(),
+                                  _mqtt.getPassword(), _mqtt.getClientId(),
+                                  val, _mqtt.getEnabled());
+                _mqtt.saveConfig();
+                _print("Topic prefix saved.");
+            } else if (sub == "enable") {
+                _mqtt.applyConfig(_mqtt.getBroker(), _mqtt.getPort(), _mqtt.getUsername(),
+                                  _mqtt.getPassword(), _mqtt.getClientId(),
+                                  _mqtt.getTopicPrefix(), true);
+                _mqtt.saveConfig();
+                _print("MQTT enabled.");
+            } else if (sub == "disable") {
+                _mqtt.applyConfig(_mqtt.getBroker(), _mqtt.getPort(), _mqtt.getUsername(),
+                                  _mqtt.getPassword(), _mqtt.getClientId(),
+                                  _mqtt.getTopicPrefix(), false);
+                _mqtt.saveConfig();
+                _print("MQTT disabled.");
+            } else {
+                _rawf("Unknown mqtt subcommand: %s", sub.c_str());
+            }
+
+        } else if (cmd == "bambu") {
+            if (!_bambu) { _print("BambuLab not available."); return; }
+            String sub = _cmd(arg);
+            String val = _arg(arg);
+            sub.toLowerCase();
+
+            if (sub.isEmpty()) {
+                _rawf("Enabled   : %s", _bambu->getEnabled()     ? "yes" : "no");
+                _rawf("Connected : %s", _bambu->isConnected()    ? "yes" : "no");
+                _rawf("State     : %s", BambuLabController::stateToString(_bambu->getState()));
+                _rawf("IP        : %s", _bambu->getIp().c_str());
+                _rawf("Serial    : %s", _bambu->getSerial().c_str());
+                _rawf("Progress  : %u%%", _bambu->getPercent());
+                _rawf("Max report: %u bytes", _bambu->getMaxReportBytes());
+            } else if (sub == "ip") {
+                if (val.isEmpty()) { _print("Usage: bambu ip <value>"); return; }
+                _bambu->applyConfig(val, _bambu->getSerial(), _bambu->getAccessCode(), _bambu->getEnabled());
+                _bambu->saveConfig();
+                _print("Printer IP saved.");
+            } else if (sub == "serial") {
+                if (val.isEmpty()) { _print("Usage: bambu serial <value>"); return; }
+                _bambu->applyConfig(_bambu->getIp(), val, _bambu->getAccessCode(), _bambu->getEnabled());
+                _bambu->saveConfig();
+                _print("Serial number saved.");
+            } else if (sub == "code") {
+                if (val.isEmpty()) { _print("Usage: bambu code <value>"); return; }
+                _bambu->applyConfig(_bambu->getIp(), _bambu->getSerial(), val, _bambu->getEnabled());
+                _bambu->saveConfig();
+                _print("Access code saved.");
+            } else if (sub == "enable") {
+                _bambu->applyConfig(_bambu->getIp(), _bambu->getSerial(), _bambu->getAccessCode(), true);
+                _bambu->saveConfig();
+                _print("BambuLab enabled.");
+            } else if (sub == "disable") {
+                _bambu->applyConfig(_bambu->getIp(), _bambu->getSerial(), _bambu->getAccessCode(), false);
+                _bambu->saveConfig();
+                _print("BambuLab disabled.");
+            } else {
+                _rawf("Unknown bambu subcommand: %s", sub.c_str());
+            }
+
+        } else if (cmd == "wifi") {
+            if (!_net) { _print("Network manager not available."); return; }
+            if (arg == "scan") {
+                _print("Scanning...");
+                _net->logVisibleNetworks();
+                return;
+            }
+            _rawf("Mode      : %s", _net->isAPMode() ? "access point" : "station");
+            _rawf("Connected : %s", _net->isConnected() ? "yes" : "no");
+            _rawf("SSID      : %s", _wifi.wifiSSID.c_str());
+            _rawf("Password  : %u chars", (unsigned)_wifi.wifiPassword.length());
+            if (_net->isConnected()) {
+                _rawf("IP        : %s", WiFi.localIP().toString().c_str());
+                _rawf("Channel   : %d", WiFi.channel());
+                _rawf("RSSI      : %d dBm", WiFi.RSSI());
+            }
+            _rawf("Last error: %u (%s)", _net->getLastFailReason(), _net->getLastFailText());
+
+        } else if (cmd == "ring") {
+            if (!_ring) { _print("Ring not available."); return; }
+            String sub = _cmd(arg);
+            String val = _arg(arg);
+            sub.toLowerCase();
+
+            uint32_t c = _ring->getColor();
+            if (sub.isEmpty()) {
+                _rawf("State  : %s", _ring->getOn() ? "on" : "off");
+                _rawf("Colour : #%02X%02X%02X", (c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+                _rawf("Blink  : %s", _ring->getBlink() ? "yes" : "no");
+                _rawf("Effect : %s", RingController::effectToString(_ring->getEffect()));
+                _rawf("Progress: %u%%", _ring->getProgressPercent());
+            } else if (sub == "on" || sub == "off") {
+                _ring->setSolid((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF,
+                                sub == "on", _ring->getBlink());
+                if (onRingChanged) onRingChanged();
+                _rawf("Ring %s.", sub.c_str());
+            } else if (sub == "color" || sub == "colour") {
+                if (val.isEmpty()) { _print("Usage: ring color <RRGGBB>"); return; }
+                if (val.startsWith("#")) val = val.substring(1);
+                if (val.length() != 6) { _print("Expected six hex digits."); return; }
+                unsigned int v = (unsigned int)strtoul(val.c_str(), nullptr, 16);
+                _ring->setSolid((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF,
+                                true, _ring->getBlink());
+                if (onRingChanged) onRingChanged();
+                _print("Colour saved.");
+            } else if (sub == "effect") {
+                if (val.isEmpty()) { _print("Usage: ring effect <name>"); return; }
+                val.toLowerCase();
+                RingEffect e = RingController::effectFromString(val.c_str());
+                if (e == RingEffect::NONE && val != "none") {
+                    _rawf("Unknown effect: %s", val.c_str());
+                    return;
+                }
+                _applyEffect(e);
+                if (onRingChanged) onRingChanged();
+                _rawf("Effect: %s", RingController::effectToString(e));
+            } else if (sub == "progress") {
+                if (val.isEmpty()) { _print("Usage: ring progress <0-100>"); return; }
+                int pct = val.toInt();
+                if (pct < 0 || pct > 100) { _print("Percentage out of range."); return; }
+                _ring->setProgressPercent((uint8_t)pct);
+                if (onRingChanged) onRingChanged();
+                _rawf("Progress: %d%%", pct);
+            } else {
+                _rawf("Unknown ring subcommand: %s", sub.c_str());
+            }
+
+        } else if (cmd == "weather") {
+            if (!_geo) { _print("Weather not available."); return; }
+            if (arg == "refresh") {
+                _print("Refreshing weather and air quality...");
+                _geo->forceRefresh();
+            } else {
+                if (_geo->weather.valid)
+                    _rawf("Weather  : code=%d temp=%.1f°C hum=%.0f%% isDay=%s",
+                          _geo->weather.weatherCode, _geo->weather.temperature,
+                          _geo->weather.humidity, _geo->weather.isDay ? "yes" : "no");
+                else
+                    _print("Weather  : no data");
+                if (_geo->airQuality.valid)
+                    _rawf("Air      : PM2.5=%.1f PM10=%.1f NO2=%.1f",
+                          _geo->airQuality.pm2_5, _geo->airQuality.pm10, _geo->airQuality.no2);
+                else
+                    _print("Air      : no data");
+            }
+
+        } else if (cmd == "reboot") {
+            _print("Rebooting...");
+            delay(200);
+            ESP.restart();
+
+        } else {
+            _rawf("Unknown command: %s (type 'help' for list)", cmd.c_str());
+        }
+    }
+};
