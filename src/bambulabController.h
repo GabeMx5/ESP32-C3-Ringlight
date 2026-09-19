@@ -87,10 +87,6 @@ public:
         _instance = this;
         _wifiClient.setInsecure();
         _wifiClient.setTimeout(15000);
-        
-        _client.setBufferSize(_maxMessageSize);
-        _client.setCallback(_onMessage);
-
 
         if (!_enabled || _ip.isEmpty() || _serial.isEmpty())
             return;
@@ -289,6 +285,7 @@ private:
     BambuState _state = BambuState::UNKNOWN;
     unsigned long _lastReconnect = 0;
     volatile bool _reconnecting  = false;
+    bool          _bufReady      = false;  // receive buffer allocated yet?
 
     static void _reconnectTaskFn(void* arg)
     {
@@ -447,6 +444,16 @@ private:
 
     bool _reconnect()
     {
+        // PubSubClient's receive buffer is 32 KB. Allocating it here rather than
+        // in begin() means a device with BambuLab disabled never pays for it,
+        // and it still covers the runtime path through applyConfig().
+        if (!_bufReady)
+        {
+            _client.setBufferSize(_maxMessageSize);
+            _client.setCallback(_onMessage);
+            _bufReady = true;
+        }
+
         // Release the previous TLS session before opening a new one: the
         // mbedTLS context of a dropped connection is otherwise never freed and
         // the heap shrinks a little on every reconnect.

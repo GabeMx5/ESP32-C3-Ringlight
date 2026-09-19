@@ -13,3 +13,10 @@ data/bambu.json
 
 # Generated gzip assets (built by compress_web.py from src_data/)
 data/*.gz
+
+# macOS / editor / tooling noise
+.DS_Store
+**/.DS_Store
+__pycache__/
+*.pyc
+.claude/

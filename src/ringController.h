@@ -80,8 +80,19 @@ public:
     void startRenderTask(UBaseType_t priority = 2, uint32_t stackBytes = 3072)
     {
         if (_renderTask) return;
-        xTaskCreate(_renderTaskFn, "ring_fx", stackBytes, this, priority, &_renderTask);
+        if (xTaskCreate(_renderTaskFn, "ring_fx", stackBytes, this, priority,
+                        &_renderTask) != pdPASS)
+        {
+            // Nothing else drives the ring, so make the failure visible and let
+            // the caller fall back to calling update() from loop().
+            _renderTask = nullptr;
+            Serial.println("[Ring] render task creation failed - falling back to loop()");
+        }
     }
+
+    // False when startRenderTask() could not create the task; loop() must then
+    // call update() itself.
+    bool hasRenderTask() const { return _renderTask != nullptr; }
 
     // Fires the callbacks raised by the render task. Called from loop().
     void dispatchEvents()

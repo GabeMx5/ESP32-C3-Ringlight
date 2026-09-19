@@ -1086,8 +1086,11 @@ void setup()
 #endif
     if (!LittleFS.begin(true))
     {
-        Serial.println("LittleFS mount failed");
-        return;
+        // Returning here would leave loop() running against controllers that
+        // were never initialised, and the watchdog would never be armed.
+        Serial.println("LittleFS mount failed - rebooting in 5 s");
+        delay(5000);
+        ESP.restart();
     }
 #ifdef IMPROV_ENABLED
     if (!LittleFS.exists("/wifi.json"))
@@ -1349,7 +1352,9 @@ void loop()
     alexaController.loop();
     networkManager.handleFallbackLogic();
     // The frames are drawn by the render task; this only fires the callbacks it
-    // raised, so WebSocket and JSON work stays on this task.
+    // raised, so WebSocket and JSON work stays on this task. If the task could
+    // not be created at boot, drive the animation from here instead.
+    if (!ringController.hasRenderTask()) ringController.update();
     ringController.dispatchEvents();
     timerController.loop();
     ws.cleanupClients();

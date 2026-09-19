@@ -1,0 +1,152 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      # data/ is gitignored, so a clean checkout never carries a local
+      # wifi.json into the released filesystem image.
+      - name: Fail if a credential file reached the checkout
+        run: |
+          for f in data/wifi.json data/mqtt.json data/bambu.json data/config.json data/timers.json; do
+            if [ -f "$f" ]; then echo "::error::$f is present in the checkout and would be baked into filesystem.bin"; exit 1; fi
+          done
+
+      - name: Build firmware (installer variant, with Improv)
+        run: pio run -e esp32c3_installer
+
+      - name: Compress web assets
+        run: python3 compress_web_standalone.py
+
+      - name: Build filesystem
+        run: pio run -t buildfs -e esp32c3_installer
+
+      - name: Prepare artifacts (dev)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          BUILD=.pio/build/esp32c3_installer
+          cp $BUILD/firmware.bin   $BUILD/firmware-dev.bin
+          cp $BUILD/littlefs.bin   $BUILD/filesystem-dev.bin
+          cp $BUILD/littlefs.bin   $BUILD/filesystem.bin
+          cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin $BUILD/boot_app0.bin
+
+      - name: Prepare artifacts (release)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          BUILD=.pio/build/esp32c3_installer
+          cp $BUILD/firmware.bin   $BUILD/firmware-${{ github.ref_name }}.bin
+          cp $BUILD/littlefs.bin   $BUILD/filesystem-${{ github.ref_name }}.bin
+          cp $BUILD/littlefs.bin   $BUILD/filesystem.bin
+          cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin $BUILD/boot_app0.bin
+
+      - name: Dev release (main push)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-latest
+          name: Dev build
+          prerelease: true
+          make_latest: false
+          files: |
+            .pio/build/esp32c3_installer/firmware-dev.bin
+            .pio/build/esp32c3_installer/filesystem-dev.bin
+            .pio/build/esp32c3_installer/firmware.bin
+            .pio/build/esp32c3_installer/filesystem.bin
+            .pio/build/esp32c3_installer/bootloader.bin
+            .pio/build/esp32c3_installer/partitions.bin
+            .pio/build/esp32c3_installer/boot_app0.bin
+
+      - name: Stable release (tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          make_latest: true
+          files: |
+            .pio/build/esp32c3_installer/firmware-${{ github.ref_name }}.bin
+            .pio/build/esp32c3_installer/filesystem-${{ github.ref_name }}.bin
+            .pio/build/esp32c3_installer/firmware.bin
+            .pio/build/esp32c3_installer/filesystem.bin
+            .pio/build/esp32c3_installer/bootloader.bin
+            .pio/build/esp32c3_installer/partitions.bin
+            .pio/build/esp32c3_installer/boot_app0.bin
+
+      - name: Build GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p docs
+          BUILD=.pio/build/esp32c3_installer
+          cp $BUILD/bootloader.bin docs/bootloader.bin
+          cp $BUILD/partitions.bin docs/partitions.bin
+          cp $BUILD/boot_app0.bin  docs/boot_app0.bin
+          cp $BUILD/firmware.bin   docs/firmware.bin
+          cp $BUILD/filesystem.bin docs/filesystem.bin
+          cp installer/index.html  docs/index.html
+          VERSION=$(grep -oP '(?<=#define FIRMWARE_VERSION ")[^"]+' src/main.cpp)
+          cat > docs/manifest.json << MANIFEST
+          {
+            "name": "ESP32-C3 Ringlight",
+            "version": "${VERSION#v}",
+            "new_install_improv_wait_time": 30,
+            "builds": [
+              {
+                "chipFamily": "ESP32-C3",
+                "parts": [
+                  { "path": "bootloader.bin", "offset": 0 },
+                  { "path": "partitions.bin",  "offset": 32768 },
+                  { "path": "boot_app0.bin",   "offset": 57344 },
+                  { "path": "firmware.bin",    "offset": 65536 },
+                  { "path": "filesystem.bin",  "offset": 3866624 }
+                ]
+              }
+            ]
+          }
+          MANIFEST
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+  deploy-pages:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
