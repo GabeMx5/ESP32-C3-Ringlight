@@ -1324,6 +1324,7 @@ async function checkLatestFirmwareVersion() {
       btn && btn.classList.remove("checking");
       btn && btn.classList.remove("update-available");
       btn && (btn.title = `${versionText} is the latest version`);
+      setTimeout(() => closeOtaOverlay(), 2200);
       return false;
     }
 
@@ -1348,9 +1349,15 @@ async function openOtaOverlay() {
   $("ota-phase-confirm").style.display  = "flex";
   $("ota-phase-progress").style.display = "none";
   $("ota-overlay").classList.add("visible");
+  $("ota-overlay").onclick = (ev) => {
+    if (ev.target === $("ota-overlay")) closeOtaOverlay();
+  };
   await checkLatestFirmwareVersion();
 }
-function closeOtaOverlay() { $("ota-overlay").classList.remove("visible"); }
+function closeOtaOverlay() {
+  $("ota-overlay").classList.remove("visible");
+  $("ota-overlay").onclick = null;
+}
 
 function confirmOTA() {
   $("ota-phase-confirm").style.display  = "none";
