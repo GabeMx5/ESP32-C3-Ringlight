@@ -1360,6 +1360,7 @@ function closeOtaOverlay() {
 }
 
 function confirmOTA() {
+  otaFirmwareFlashing = true;
   $("ota-phase-confirm").style.display  = "none";
   $("ota-phase-progress").style.display = "flex";
   wsSend({ type: "startOTA" });
@@ -1372,6 +1373,7 @@ function onOtaStatus(step) {
   $("ota-phase-confirm").style.display  = "none";
   $("ota-phase-progress").style.display = "flex";
   if (step === "error") {
+    otaFirmwareFlashing = false;
     $("ota-step-error").style.display = "block";
     return;
   }
