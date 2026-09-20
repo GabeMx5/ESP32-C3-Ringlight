@@ -249,12 +249,13 @@ public:
 
         struct SwitchDef { const char *name; const char *id; const char *cmdOn; const char *cmdOff; };
         SwitchDef switches[] = {
-            {"Spinner",  "spinner",  "{\"type\":\"setSpinner\",\"on\":true}",  "{\"type\":\"setSpinner\",\"on\":false}"},
-            {"Rainbow",  "rainbow",  "{\"type\":\"setRainbow\",\"on\":true}",  "{\"type\":\"setRainbow\",\"on\":false}"},
-            {"Party",    "party",    "{\"type\":\"setParty\",\"on\":true}",    "{\"type\":\"setParty\",\"on\":false}"},
-            {"Chase",    "chase",    "{\"type\":\"setChase\",\"on\":true}",    "{\"type\":\"setChase\",\"on\":false}"},
-            {"Clock",    "clock",    "{\"type\":\"setClock\",\"on\":true}",    "{\"type\":\"setClock\",\"on\":false}"},
-            {"Progress", "progress", "{\"type\":\"setProgress\",\"on\":true}", "{\"type\":\"setProgress\",\"on\":false}"},
+            {"Spinner",      "spinner",    "{\"type\":\"setSpinner\",\"on\":true}",    "{\"type\":\"setSpinner\",\"on\":false}"},
+            {"Rainbow",      "rainbow",    "{\"type\":\"setRainbow\",\"on\":true}",    "{\"type\":\"setRainbow\",\"on\":false}"},
+            {"Party",        "party",      "{\"type\":\"setParty\",\"on\":true}",      "{\"type\":\"setParty\",\"on\":false}"},
+            {"Chase",        "chase",      "{\"type\":\"setChase\",\"on\":true}",      "{\"type\":\"setChase\",\"on\":false}"},
+            {"Clock",        "clock",      "{\"type\":\"setClock\",\"on\":true}",      "{\"type\":\"setClock\",\"on\":false}"},
+            {"Progress",     "progress",   "{\"type\":\"setProgress\",\"on\":true}",   "{\"type\":\"setProgress\",\"on\":false}"},
+            {"BambuLab Mode", "bambu_mode", "{\"type\":\"setBambuMode\",\"bambuMode\":true}", "{\"type\":\"setBambuMode\",\"bambuMode\":false}"},
         };
 
         for (auto &sw : switches)
