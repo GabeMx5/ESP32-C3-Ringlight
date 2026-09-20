@@ -1,4 +1,4 @@
-#define FIRMWARE_VERSION "1.2.18"
+#define FIRMWARE_VERSION "1.2.19"
 
 #include "teeSerial.h"
 TeeSerial teeSerial;
@@ -667,6 +667,37 @@ void processCommand(JsonDocument &doc)
             doc["bb"]  | ringController.getProgressBB());
         configController.markDirty();
         broadcastEffectStatus();
+    }
+    else if (strcmp(type, "setBambuMode") == 0)
+    {
+        bool    mode    = doc["bambuMode"]      | false;
+        uint8_t timeout = doc["idleTimeoutMin"] | (uint8_t)5;
+        bambuController.setBambuMode(mode);
+        bambuController.setIdleTimeoutMin(timeout);
+        configController.setBambuMode(mode);
+        configController.setIdleTimeoutMin(timeout);
+        bambuController.resetIdle();
+        if (mode) {
+            applyEffectExclusive(RingEffect::NONE);
+            broadcastEffectStatus();
+            if (bambuController.isConnected()) {
+                BambuState cur = bambuController.getState();
+                applyBambuRingState(cur);
+                if (cur == BambuState::IDLE || cur == BambuState::FINISH)
+                    bambuController.markIdle();
+            }
+        } else {
+            ringController.cancelOverlay();
+        }
+        {
+            JsonDocument bdoc;
+            bdoc["type"]      = "bambuConfig";
+            bdoc["bambuMode"] = mode;
+            String bmsg; serializeJson(bdoc, bmsg);
+            ws.textAll(bmsg);
+        }
+        sendBambuConfig(nullptr);
+        return;
     }
     else if (strcmp(type, "setGeometry") == 0)
     {
