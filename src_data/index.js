@@ -1377,15 +1377,7 @@ function onOtaStatus(step) {
   }
   if (step === "firmware") {
     otaFirmwareFlashing = true;
-    const msg = $("ota-reconnect-msg");
-    if (msg) {
-      msg.textContent = "Device rebooting, page will refresh automatically…";
-      msg.style.display = "block";
-    }
-    startReloadPoller();
-    setTimeout(() => {
-      if (document.visibilityState !== "hidden") location.reload();
-    }, 5000);
+    $("ota-step-error").style.display = "none";
   }
   const idx = OTA_STEPS.indexOf(step);
   OTA_STEPS.forEach((s, i) => {
