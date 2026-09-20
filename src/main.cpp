@@ -1,4 +1,4 @@
-#define FIRMWARE_VERSION "1.2.20"
+#define FIRMWARE_VERSION "1.2.21"
 
 #include "teeSerial.h"
 TeeSerial teeSerial;
@@ -188,6 +188,7 @@ static void cancelBambuMode()
     doc["bambuMode"] = false;
     String msg; serializeJson(doc, msg);
     ws.textAll(msg);
+    mqttController.publishSwitchState("bambu_mode", false);
 }
 
 // ─── Status builders ──────────────────────────────────────────────────────────
@@ -911,6 +912,7 @@ void handleWebSocketMessage(AsyncWebSocketClient *client, uint8_t *data, size_t 
             String bmsg; serializeJson(bdoc, bmsg);
             ws.textAll(bmsg);
         }
+        mqttController.publishSwitchState("bambu_mode", mode);
         sendBambuConfig(client);
         return;
     }
@@ -1239,6 +1241,7 @@ void setup()
         doc["bambuMode"] = on;
         String msg; serializeJson(doc, msg);
         ws.textAll(msg);
+        mqttController.publishSwitchState("bambu_mode", on);
     };
 
     networkManager.begin(wifiManager);
