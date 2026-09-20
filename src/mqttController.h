@@ -218,6 +218,13 @@ public:
                            String((int)pct).c_str(), true);
     }
 
+    void publishBambuProgress(uint8_t pct)
+    {
+        if (!mqttClient.connected()) return;
+        mqttClient.publish((topicPrefix + "/status/bambu/progress").c_str(),
+                           String((int)pct).c_str(), true);
+    }
+
     void publishDiscovery()
     {
         if (!mqttClient.connected()) return;
@@ -285,12 +292,12 @@ public:
         }
 
         {
-            String uid        = clientId + "_progress_pct";
+            String uid        = clientId + "_bambu_progress_pct";
             String discTopic  = "homeassistant/number/" + uid + "/config";
-            String stateTopic = topicPrefix + "/status/progress";
+            String stateTopic = topicPrefix + "/status/bambu/progress";
 
             JsonDocument doc;
-            doc["name"]               = "Progress Percent";
+            doc["name"]               = "Bambu Progress Percent";
             doc["unique_id"]          = uid;
             doc["state_topic"]        = stateTopic;
             doc["command_topic"]      = cmdTopic;

@@ -1,4 +1,4 @@
-#define FIRMWARE_VERSION "1.2.22"
+#define FIRMWARE_VERSION "1.2.23"
 
 #include "teeSerial.h"
 TeeSerial teeSerial;
@@ -1307,7 +1307,7 @@ void setup()
         if (bambuController.getBambuMode()) applyBambuRingState(state);
     };
     bambuController.onProgress = [](uint8_t pct) {
-        mqttController.publishProgress(pct);
+        mqttController.publishBambuProgress(pct);
         if (_hasBambuOrInfoViewers()) {
             JsonDocument doc;
             doc["type"]    = "bambuConfig";
