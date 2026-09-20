@@ -341,10 +341,10 @@ public:
         }
 
         // Air quality sensors
-        struct { const char *name; const char *id; const char *unit; } aqSensors[] = {
-            {"PM2.5",  "pm2_5", "µg/m³"},
-            {"PM10",   "pm10",  "µg/m³"},
-            {"NO₂",    "no2",   "µg/m³"},
+        struct { const char *name; const char *id; const char *unit; const char *deviceClass; } aqSensors[] = {
+            {"PM2.5", "pm2_5", "µg/m³", "pm25"},
+            {"PM10",  "pm10",  "µg/m³", "pm10"},
+            {"NO₂",   "no2",   "µg/m³", "nitrogen_dioxide"},
         };
         for (auto &s : aqSensors)
         {
@@ -358,6 +358,7 @@ public:
             doc["state_topic"]         = stateTopic;
             doc["state_class"]         = "measurement";
             doc["unit_of_measurement"] = s.unit;
+            if (s.deviceClass) doc["device_class"] = s.deviceClass;
 
             JsonObject dev        = doc["device"].to<JsonObject>();
             dev["identifiers"][0] = clientId;

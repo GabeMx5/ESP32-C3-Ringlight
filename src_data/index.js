@@ -118,8 +118,15 @@ function connect() {
 
   ws.addEventListener("close", () => {
     if (otaFirmwareFlashing) {
-      document.getElementById("ota-reconnect-msg").style.display = "block";
+      const msg = document.getElementById("ota-reconnect-msg");
+      if (msg) {
+        msg.textContent = "Device rebooting, page will refresh automatically…";
+        msg.style.display = "block";
+      }
       startReloadPoller();
+      setTimeout(() => {
+        if (document.visibilityState !== "hidden") location.reload();
+      }, 5000);
       return;
     }
     showDisconnected();
@@ -1265,10 +1272,83 @@ async function confirmRestore() {
 
 // ─── OTA ──────────────────────────────────────────────────────────────────────
 
-function openOtaOverlay() {
+function normalizeVersion(v) {
+  if (v === undefined || v === null) return "";
+  return String(v).trim().replace(/^v/i, "").replace(/[^0-9.]/g, "").trim();
+}
+
+function compareVersions(localV, remoteV) {
+  const a = normalizeVersion(localV).split(".").map(n => parseInt(n || "0", 10));
+  const b = normalizeVersion(remoteV).split(".").map(n => parseInt(n || "0", 10));
+  const maxLen = Math.max(a.length, b.length);
+  for (let i = 0; i < maxLen; i++) {
+    const av = a[i] || 0;
+    const bv = b[i] || 0;
+    if (av < bv) return -1;
+    if (av > bv) return 1;
+  }
+  return 0;
+}
+
+async function checkLatestFirmwareVersion() {
+  const label = $("ota-latest-label");
+  const actions = $("ota-confirm-actions");
+  const confirmBtn = $("ota-confirm-btn");
+  const cancelBtn = $("ota-cancel-btn");
+  const btn = $("updateBtn");
+
+  if (!label || !actions) return false;
+
+  const localVersion = normalizeVersion(sysInfo.version || $("infoVersion")?.textContent || "");
+  btn && btn.classList.add("checking");
+  btn && btn.classList.remove("update-available");
+  btn && (btn.title = "Checking for firmware update...");
+  label.textContent = "Checking for updates…";
+  actions.style.display = "flex";
+  if (confirmBtn) confirmBtn.style.display = "block";
+  if (cancelBtn) cancelBtn.style.display = "block";
+
+  try {
+    const res = await fetch("https://api.github.com/repos/GabeMx5/ESP32-C3-Ringlight/releases/latest", { cache: "no-store" });
+    if (!res.ok) throw new Error("GitHub request failed");
+    const data = await res.json();
+    const remoteVersion = normalizeVersion(data.tag_name || data.name || "");
+    if (!remoteVersion) throw new Error("No release tag");
+
+    const cmp = compareVersions(localVersion, remoteVersion);
+    const versionText = `v${remoteVersion}`;
+
+    if (cmp >= 0) {
+      label.textContent = `${versionText} is the latest version`;
+      actions.style.display = "none";
+      btn && btn.classList.remove("checking");
+      btn && btn.classList.remove("update-available");
+      btn && (btn.title = `${versionText} is the latest version`);
+      return false;
+    }
+
+    label.textContent = `${versionText} is available`;
+    actions.style.display = "flex";
+    confirmBtn && (confirmBtn.textContent = `Update to ${versionText}`);
+    btn && btn.classList.remove("checking");
+    btn && btn.classList.add("update-available");
+    btn && (btn.title = `Update available: ${versionText}`);
+    return true;
+  } catch (_) {
+    label.textContent = "Flashes the latest release from GitHub.";
+    actions.style.display = "flex";
+    btn && btn.classList.remove("checking");
+    btn && btn.classList.remove("update-available");
+    btn && (btn.title = "Firmware update");
+    return false;
+  }
+}
+
+async function openOtaOverlay() {
   $("ota-phase-confirm").style.display  = "flex";
   $("ota-phase-progress").style.display = "none";
   $("ota-overlay").classList.add("visible");
+  await checkLatestFirmwareVersion();
 }
 function closeOtaOverlay() { $("ota-overlay").classList.remove("visible"); }
 
@@ -1284,8 +1364,22 @@ function onOtaStatus(step) {
   $("ota-overlay").classList.add("visible");
   $("ota-phase-confirm").style.display  = "none";
   $("ota-phase-progress").style.display = "flex";
-  if (step === "error") { $("ota-step-error").style.display = "block"; return; }
-  if (step === "firmware") otaFirmwareFlashing = true;
+  if (step === "error") {
+    $("ota-step-error").style.display = "block";
+    return;
+  }
+  if (step === "firmware") {
+    otaFirmwareFlashing = true;
+    const msg = $("ota-reconnect-msg");
+    if (msg) {
+      msg.textContent = "Device rebooting, page will refresh automatically…";
+      msg.style.display = "block";
+    }
+    startReloadPoller();
+    setTimeout(() => {
+      if (document.visibilityState !== "hidden") location.reload();
+    }, 5000);
+  }
   const idx = OTA_STEPS.indexOf(step);
   OTA_STEPS.forEach((s, i) => {
     const el = $("ota-step-" + s);

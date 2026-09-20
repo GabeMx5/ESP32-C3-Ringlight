@@ -33,8 +33,13 @@ public:
         _restoreConfigs();
 
         _notify("firmware");
-        _flashFirmware(); // auto-restart on success
-        _notify("error");
+        if (!_flashFirmware()) {
+            _notify("error");
+            return;
+        }
+        // Successful firmware update triggers its own reboot; nothing else should
+        // be reported after this point because the device will disappear from the
+        // network immediately.
     }
 
 private:
@@ -97,7 +102,7 @@ private:
         prefs.end();
     }
 
-    void _flashFirmware()
+    bool _flashFirmware()
     {
         WiFiClientSecure client;
         client.setInsecure();
@@ -105,7 +110,8 @@ private:
         httpUpdate.onProgress([this](int cur, int total) {
             if (onProgress && total > 0) onProgress("firmware", cur * 100 / total);
         });
-        httpUpdate.update(client, OTA_FW_URL);
-        // auto-restart on success
+        t_httpUpdate_return ret = httpUpdate.update(client, OTA_FW_URL);
+        Serial.printf("[OTA] Firmware result: %d — %s\n", ret, httpUpdate.getLastErrorString().c_str());
+        return ret == HTTP_UPDATE_OK;
     }
 };

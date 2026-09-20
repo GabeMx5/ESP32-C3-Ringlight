@@ -553,11 +553,11 @@
       <div class="ota-card" id="ota-phase-confirm">
         <p class="guess-heading">Firmware update</p>
         <p id="ota-latest-label" style="font-family:monospace;font-size:0.85rem;color:var(--secondary-text);margin:0;">
-          Flashes the latest release from GitHub.
+          Checking for updates…
         </p>
-        <div style="display:flex;gap:10px;width:100%;">
-          <button class="save-btn" style="flex:1;margin:0;" onclick="confirmOTA()">Update</button>
-          <button class="save-btn" style="flex:1;margin:0;background:var(--border);" onclick="closeOtaOverlay()">Cancel</button>
+        <div id="ota-confirm-actions" style="display:flex;gap:10px;width:100%;">
+          <button id="ota-confirm-btn" class="save-btn" style="flex:1;margin:0;" onclick="confirmOTA()">Update</button>
+          <button id="ota-cancel-btn" class="save-btn" style="flex:1;margin:0;background:var(--border);" onclick="closeOtaOverlay()">Cancel</button>
         </div>
       </div>
       <div class="ota-card" id="ota-phase-progress" style="display:none;">

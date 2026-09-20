@@ -71,7 +71,16 @@ public:
 
     void loop()
     {
-        if (_lat == 0.0f && _lon == 0.0f) return;
+        if (_lat == 0.0f && _lon == 0.0f)
+        {
+            static bool warned = false;
+            if (!warned)
+            {
+                Serial.println("[Geo] Latitude/longitude not configured; weather and air quality data will stay empty until set.");
+                warned = true;
+            }
+            return;
+        }
         if (WiFi.status() != WL_CONNECTED) return;
         if (_taskRunning) return;
         unsigned long now = millis();
@@ -193,6 +202,12 @@ private:
         if (deserializeJson(doc, body)) { Serial.println("[AQ] JSON error"); return; }
 
         JsonObject c = doc["current"];
+        if (c.isNull())
+        {
+            Serial.println("[AQ] API response missing current section; check latitude/longitude and Open-Meteo endpoint.");
+            return;
+        }
+
         airQuality.pm2_5  = c["pm2_5"]             | 0.0f;
         airQuality.pm10   = c["pm10"]               | 0.0f;
         airQuality.no2    = c["nitrogen_dioxide"]   | 0.0f;
