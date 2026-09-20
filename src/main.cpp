@@ -1,4 +1,4 @@
-#define FIRMWARE_VERSION "1.2.16"
+#define FIRMWARE_VERSION "1.2.17"
 
 #include "teeSerial.h"
 TeeSerial teeSerial;
@@ -275,12 +275,13 @@ static void broadcastEffectStatus()
     ws.textAll(msg);
     mqttController.publish(msg);
     RingEffect e = ringController.getEffect();
-    mqttController.publishSwitchState("spinner",  e == RingEffect::SPINNER);
-    mqttController.publishSwitchState("rainbow",  e == RingEffect::RAINBOW);
-    mqttController.publishSwitchState("party",    e == RingEffect::PARTY);
-    mqttController.publishSwitchState("chase",    e == RingEffect::CHASE);
-    mqttController.publishSwitchState("clock",    e == RingEffect::CLOCK);
-    mqttController.publishSwitchState("progress", e == RingEffect::PROGRESS);
+    mqttController.publishSwitchState("spinner",    e == RingEffect::SPINNER);
+    mqttController.publishSwitchState("rainbow",    e == RingEffect::RAINBOW);
+    mqttController.publishSwitchState("party",      e == RingEffect::PARTY);
+    mqttController.publishSwitchState("chase",      e == RingEffect::CHASE);
+    mqttController.publishSwitchState("clock",      e == RingEffect::CLOCK);
+    mqttController.publishSwitchState("progress",   e == RingEffect::PROGRESS);
+    mqttController.publishSwitchState("bambu_mode", bambuController.getBambuMode());
     mqttController.publishProgress(ringController.getProgressPercent());
 }
 
