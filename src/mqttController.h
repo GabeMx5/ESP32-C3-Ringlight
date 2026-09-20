@@ -284,6 +284,33 @@ public:
             mqttClient.publish(discTopic.c_str(), payload.c_str(), true);
         }
 
+        {
+            String uid        = clientId + "_progress_pct";
+            String discTopic  = "homeassistant/number/" + uid + "/config";
+            String stateTopic = topicPrefix + "/status/progress";
+
+            JsonDocument doc;
+            doc["name"]               = "Progress Percent";
+            doc["unique_id"]          = uid;
+            doc["state_topic"]        = stateTopic;
+            doc["command_topic"]      = cmdTopic;
+            doc["command_template"]  = "{\"type\":\"setProgress\",\"on\":true,\"pct\":{{ value }}}";
+            doc["min"]               = 0;
+            doc["max"]               = 100;
+            doc["step"]              = 1;
+            doc["unit_of_measurement"] = "%";
+            doc["mode"]              = "slider";
+
+            JsonObject dev        = doc["device"].to<JsonObject>();
+            dev["identifiers"][0] = clientId;
+            dev["name"]           = "Ringlight";
+            dev["model"]          = "ESP32-C3";
+
+            String payload;
+            serializeJson(doc, payload);
+            mqttClient.publish(discTopic.c_str(), payload.c_str(), true);
+        }
+
         struct { const char *name; const char *id; const char *cmd; } buttons[] = {
             {"Random Yes/No", "random_yn",     "{\"type\":\"randomYesNo\"}"},
             {"Weather Color", "weather_color", "{\"type\":\"weatherColor\"}"},
